@@ -48,9 +48,3 @@ npm start
 ### 5. Access the App
 Open your web browser and go to:
 **http://localhost:3000**
-
-## 💡 How to Demo
-1. **Manual Entry**: Click "Submit a Case", select a case type, add a fictitious filing date, and paste a case description (e.g., *“Bail application for accused detained since 2018 under NDPS act...”*).
-2. **File Upload**: Switch to the "File Upload" tab and drag-and-drop a `.txt` file containing a case summary.
-3. **Analyze**: Click the analyze button. Watch the loading animation as Gemini processes the text.
-4. **Dashboard**: The case will appear on the dashboard with a generated priority score. Submit multiple cases to see the **Top Priority Recommendation Banner** dynamically update at the top of the screen!
