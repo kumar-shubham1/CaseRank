@@ -233,13 +233,24 @@ function initInputTabs() {
 // --- Dashboard Logic ---
 async function refreshDashboard() {
   try {
+<<<<<<< HEAD
     const [casesRes, recRes] = await Promise.all([
       fetch(`${API_BASE}`),
       fetch(`${API_BASE}/recommend`)
+=======
+    const [casesRes, recRes, scheduleRes] = await Promise.all([
+      fetch(`${API_BASE}`),
+      fetch(`${API_BASE}/recommend`),
+      fetch(`${API_BASE}/schedule`)
+>>>>>>> 03f300a (Initial commit)
     ]);
 
     let casesData = { cases: [] };
     let recData = { recommendation: null };
+<<<<<<< HEAD
+=======
+    let scheduleData = { recommended: [] };
+>>>>>>> 03f300a (Initial commit)
 
     if (casesRes.ok) {
       const parsed = await safeJsonResponse(casesRes);
@@ -251,10 +262,22 @@ async function refreshDashboard() {
       if (parsed) recData = parsed;
     }
 
+<<<<<<< HEAD
+=======
+    if (scheduleRes.ok) {
+      const parsed = await safeJsonResponse(scheduleRes);
+      if (parsed && Array.isArray(parsed.recommended)) scheduleData = parsed;
+    }
+
+>>>>>>> 03f300a (Initial commit)
     const cases = casesData.cases || [];
 
     updateHeaderStats(cases);
     renderRecommendation(recData.recommendation);
+<<<<<<< HEAD
+=======
+    renderSchedule(scheduleData.recommended || []);
+>>>>>>> 03f300a (Initial commit)
     renderCaseList(cases);
     renderCharts(cases);
   } catch (err) {
@@ -268,6 +291,57 @@ function updateHeaderStats(cases) {
   document.getElementById('statLow').textContent = cases.filter(c => c.priority === 'Low').length;
 }
 
+<<<<<<< HEAD
+=======
+function renderSchedule(recommended) {
+  const listEl = document.getElementById('scheduleList');
+  const emptyEl = document.getElementById('scheduleEmpty');
+  if (!listEl || !emptyEl) return;
+
+  if (!recommended.length) {
+    listEl.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+
+  emptyEl.classList.add('hidden');
+  listEl.classList.remove('hidden');
+
+  listEl.innerHTML = recommended
+    .map((item, idx) => {
+      const isTop = idx === 0;
+      let badgeColor = 'bg-slate-600/20 text-slate-300 border-slate-600';
+      if (item.priority === 'High') {
+        badgeColor = 'bg-red-500/10 border-red-500/30 text-red-400';
+      } else if (item.priority === 'Medium') {
+        badgeColor = 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400';
+      } else if (item.priority === 'Low') {
+        badgeColor = 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+      }
+      const caseId = escapeHtml(item.caseId != null ? String(item.caseId) : '—');
+      const scoreVal =
+        typeof item.score === 'number' ? item.score : Number(item.score) || 0;
+      const rowClass = isTop
+        ? 'py-4 px-1 bg-gold-500/5 border-l-2 border-gold-500 -ml-0.5 pl-3'
+        : 'py-3 px-1';
+
+      return `
+        <li class="${rowClass}">
+          <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span class="text-slate-500 font-bold text-xs w-5 shrink-0">#${idx + 1}</span>
+            <span class="text-sm font-bold text-slate-100">${caseId}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${badgeColor}">
+              ${escapeHtml(item.priority || 'Medium')}
+            </span>
+            <span class="text-xs text-slate-400 font-medium">Score <span class="text-slate-200">${scoreVal}</span>/10</span>
+          </div>
+        </li>
+      `;
+    })
+    .join('');
+}
+
+>>>>>>> 03f300a (Initial commit)
 function renderRecommendation(rec) {
   const card = document.getElementById('recommendationCard');
   if (!rec) {

@@ -303,6 +303,7 @@ function deleteCase(req, res) {
   res.json({ message: 'Case removed', case: removed });
 }
 
+<<<<<<< HEAD
 function getSchedule(req, res) {
   const ranked = rankCases(cases);
   const schedule = ranked.slice(0, 3);
@@ -310,6 +311,41 @@ function getSchedule(req, res) {
     message: 'Smart Schedule: Top 3 Cases for Today',
     schedule
   });
+=======
+function delayInDaysSinceFiling(filingDate) {
+  if (!filingDate) return 0;
+  const filed = new Date(filingDate);
+  if (Number.isNaN(filed.getTime())) return 0;
+  const now = new Date();
+  return Math.max(0, Math.floor((now - filed) / (1000 * 60 * 60 * 24)));
+}
+
+/**
+ * GET /api/cases/schedule
+ * urgencyScore = (score * 0.6) + (delayInDays * 0.4)
+ */
+function getSchedule(req, res) {
+  const scored = cases.map((c) => {
+    const score =
+      typeof c.score === 'number' ? c.score : Number(c.score) || 0;
+    const delayInDays = delayInDaysSinceFiling(c.filingDate);
+    const urgencyScore = score * 0.6 + delayInDays * 0.4;
+    return {
+      caseId: c.caseNumber != null ? String(c.caseNumber) : String(c.id),
+      caseType: c.caseType || 'General',
+      priority: c.priority || 'Medium',
+      score,
+      urgencyScore: Math.round(urgencyScore * 100) / 100,
+      delayInDays
+    };
+  });
+
+  scored.sort((a, b) => b.urgencyScore - a.urgencyScore);
+
+  const recommended = scored.slice(0, 3).map(({ delayInDays, ...rest }) => rest);
+
+  res.json({ recommended });
+>>>>>>> 03f300a (Initial commit)
 }
 
 function compareCases(req, res) {
