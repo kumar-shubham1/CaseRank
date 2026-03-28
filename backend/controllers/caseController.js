@@ -1,5 +1,5 @@
 const { analyzeCase: geminiAnalyze } = require('../utils/gemini');
-const { parseFileContent } = require('../utils/fileParser');
+const { parseFileContent, parseStructuredCaseFile } = require('../utils/fileParser');
 const { calculatePriorityScore, rankCases, getTopRecommendation } = require('../utils/priorityEngine');
 
 const cases = [];
@@ -12,6 +12,60 @@ function validationBody(summary, reason) {
     score: 0,
     reason
   };
+}
+
+/**
+ * Shared pipeline: Gemini + persist case (manual + upload)
+ * @param {string} [selectedCaseType] - Non-empty = user/file override; empty = AI + keyword detection
+ */
+async function analyzeAndPersistCase({
+  description,
+  selectedCaseType,
+  filingDate,
+  caseNumber,
+  source,
+  fileName
+}) {
+  const desc = String(description).trim();
+  const userLocked =
+    selectedCaseType != null && String(selectedCaseType).trim().length > 0;
+  const userType = userLocked ? String(selectedCaseType).trim() : '';
+
+  let fullDescription = desc;
+  if (filingDate) fullDescription = `Filing Date: ${filingDate}\n${fullDescription}`;
+  if (userType) {
+    fullDescription = `Case Type (confirmed by user): ${userType}\n${fullDescription}`;
+  }
+
+  const analysis = await geminiAnalyze(fullDescription);
+
+  const finalCaseType = userType || analysis.caseType || 'General';
+  const caseTypeAutoDetected = !userLocked;
+
+  const newCase = {
+    id: nextId++,
+    caseNumber: caseNumber || `CR-${Date.now()}`,
+    description: desc,
+    caseType: finalCaseType,
+    caseTypeAutoDetected,
+    filingDate: filingDate || null,
+    summary: analysis.summary,
+    priority: analysis.priority,
+    score: analysis.score,
+    range: analysis.range,
+    reason: analysis.reason,
+    estimatedComplexity: analysis.estimatedComplexity,
+    priorityScore: 0,
+    analyzedAt: new Date().toISOString(),
+    status: 'Pending',
+    ...(source && { source }),
+    ...(fileName && { fileName })
+  };
+
+  newCase.priorityScore = calculatePriorityScore(newCase);
+  cases.push(newCase);
+
+  return { newCase, analysis };
 }
 
 /**
@@ -36,37 +90,20 @@ async function analyzeCase(req, res) {
 
     console.log('\n[Controller] Analyzing case:', { caseType, filingDate });
 
-    let fullDescription = description.trim();
-    if (caseType) fullDescription = `Case Type: ${caseType}\n${fullDescription}`;
-    if (filingDate) fullDescription = `Filing Date: ${filingDate}\n${fullDescription}`;
-
-    const analysis = await geminiAnalyze(fullDescription);
-
-    console.log('[Controller] ✓ AI analysis received');
-
-    const newCase = {
-      id: nextId++,
-      caseNumber: caseNumber || `CR-${Date.now()}`,
-      description: description.trim(),
-      caseType: analysis.caseType || caseType || 'General',
-      filingDate: filingDate || null,
-      summary: analysis.summary,
-      priority: analysis.priority,
-      score: analysis.score,
-      range: analysis.range,
-      reason: analysis.reason,
-      estimatedComplexity: analysis.estimatedComplexity,
-      priorityScore: 0,
-      analyzedAt: new Date().toISOString(),
-      status: 'Pending'
-    };
-
-    newCase.priorityScore = calculatePriorityScore(newCase);
-    cases.push(newCase);
+    const { newCase, analysis } = await analyzeAndPersistCase({
+      description,
+      selectedCaseType: caseType,
+      filingDate,
+      caseNumber,
+      source: 'manual'
+    });
 
     console.log('[Controller] ✓ Case saved with ID:', newCase.id);
 
     return res.status(201).json({
+      caseId: newCase.caseNumber,
+      caseType: newCase.caseType,
+      caseTypeAutoDetected: newCase.caseTypeAutoDetected,
       message: 'Case analyzed successfully',
       summary: analysis.summary,
       priority: analysis.priority,
@@ -76,6 +113,87 @@ async function analyzeCase(req, res) {
     });
   } catch (error) {
     console.error('[Controller] ✗ Error analyzing case:', error.message);
+    return res.status(500).json({
+      summary: 'This case involves a legal issue requiring attention.',
+      priority: 'Medium',
+      score: 5,
+      reason: 'Analysis temporarily unavailable'
+    });
+  }
+}
+
+/**
+ * POST /api/cases/upload — structured .txt content (JSON body: { content })
+ */
+async function uploadCaseText(req, res) {
+  try {
+    const { content } = req.body;
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json(
+        validationBody(
+          'No file content received.',
+          'Please upload a non-empty .txt file.'
+        )
+      );
+    }
+
+    const parsed = parseStructuredCaseFile(content);
+    const { caseId, caseType, filingDate, description } = parsed;
+
+    if (!description || description.length < 10) {
+      return res.status(400).json(
+        validationBody(
+          'Invalid file format.',
+          'Include a "Description:" line with at least 10 characters.'
+        )
+      );
+    }
+
+    const hasAnyLabel =
+      /Case ID:/i.test(content) ||
+      /Case Type:/i.test(content) ||
+      /Filing Date:/i.test(content) ||
+      /Description:/i.test(content);
+
+    if (!hasAnyLabel) {
+      return res.status(400).json(
+        validationBody(
+          'Invalid file format.',
+          'Use labels: Case ID, Case Type, Filing Date, Description.'
+        )
+      );
+    }
+
+    console.log('\n[Controller] Upload / structured text analyze:', {
+      caseId,
+      caseType,
+      filingDate
+    });
+
+    const { newCase, analysis } = await analyzeAndPersistCase({
+      description,
+      selectedCaseType: caseType || '',
+      filingDate,
+      caseNumber: caseId || undefined,
+      source: 'upload'
+    });
+
+    console.log('[Controller] ✓ Upload case saved with ID:', newCase.id);
+
+    return res.status(201).json({
+      caseId: newCase.caseNumber,
+      caseType: newCase.caseType,
+      caseTypeAutoDetected: newCase.caseTypeAutoDetected,
+      filingDate: newCase.filingDate || '',
+      summary: analysis.summary,
+      priority: analysis.priority,
+      score: analysis.score,
+      reason: analysis.reason,
+      case: newCase
+    });
+  } catch (error) {
+    console.error('[Controller] ✗ Error upload analyze:', error.message);
     return res.status(500).json({
       summary: 'This case involves a legal issue requiring attention.',
       priority: 'Medium',
@@ -113,36 +231,23 @@ async function analyzeFile(req, res) {
     console.log('\n[Controller] Analyzing file:', req.file.originalname);
 
     const parsed = parseFileContent(fileContent);
-    const analysis = await geminiAnalyze(fileContent);
-
-    console.log('[Controller] ✓ AI analysis received for file');
-
-    const newCase = {
-      id: nextId++,
-      caseNumber: parsed.caseNumber || `CR-${Date.now()}`,
+    const { newCase, analysis } = await analyzeAndPersistCase({
       description: parsed.description,
-      caseType: analysis.caseType || parsed.caseType || 'General',
-      filingDate: parsed.filingDate || null,
-      offense: parsed.offense || null,
-      summary: analysis.summary,
-      priority: analysis.priority,
-      score: analysis.score,
-      range: analysis.range,
-      reason: analysis.reason,
-      estimatedComplexity: analysis.estimatedComplexity,
-      priorityScore: 0,
-      analyzedAt: new Date().toISOString(),
-      status: 'Pending',
+      selectedCaseType: parsed.caseType || '',
+      filingDate: parsed.filingDate || undefined,
+      caseNumber: parsed.caseNumber || undefined,
       source: 'file',
       fileName: req.file.originalname
-    };
+    });
 
-    newCase.priorityScore = calculatePriorityScore(newCase);
-    cases.push(newCase);
+    newCase.offense = parsed.offense || null;
 
     console.log('[Controller] ✓ File case saved with ID:', newCase.id);
 
     return res.status(201).json({
+      caseId: newCase.caseNumber,
+      caseType: newCase.caseType,
+      caseTypeAutoDetected: newCase.caseTypeAutoDetected,
       message: 'File analyzed successfully',
       summary: analysis.summary,
       priority: analysis.priority,
@@ -248,6 +353,7 @@ function compareCases(req, res) {
 
 module.exports = {
   analyzeCase,
+  uploadCaseText,
   analyzeFile,
   getAllCases,
   getRecommendation,

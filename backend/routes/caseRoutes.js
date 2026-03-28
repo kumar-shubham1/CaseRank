@@ -19,6 +19,9 @@ const upload = multer({
 // POST /api/cases/analyze - Analyze a case from text input
 router.post('/analyze', caseController.analyzeCase);
 
+// POST /api/cases/upload - Structured .txt content as JSON { content }
+router.post('/upload', caseController.uploadCaseText);
+
 // POST /api/cases/analyze-file - Analyze a case from uploaded .txt file
 router.post('/analyze-file', (req, res, next) => {
   upload.single('caseFile')(req, res, (err) => {

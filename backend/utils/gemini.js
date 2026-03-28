@@ -1,4 +1,8 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const {
+  normalizeAiCaseType,
+  detectCaseTypeFromKeywords
+} = require('./caseType');
 
 let genAI = null;
 
@@ -79,18 +83,30 @@ function buildResult(parsed) {
   const reason = String(parsed.reason || PARSE_FALLBACK.reason).trim();
   const range = scoreToRange(score);
 
+  let caseType = normalizeAiCaseType(parsed.caseType);
+  if (!caseType) caseType = 'General';
+
   return {
     summary,
     priority,
     score: parseFloat(score.toFixed(1)),
     range,
     reason,
-    caseType: parsed.caseType && String(parsed.caseType).trim() ? String(parsed.caseType).trim() : 'General',
+    caseType,
     estimatedComplexity:
       parsed.estimatedComplexity && String(parsed.estimatedComplexity).trim()
         ? String(parsed.estimatedComplexity).trim()
         : 'Moderate'
   };
+}
+
+function applyKeywordCaseTypeIfGeneral(result, caseDescription) {
+  if (!result || result.caseType !== 'General') return result;
+  const kw = detectCaseTypeFromKeywords(caseDescription);
+  if (kw !== 'General') {
+    result.caseType = kw;
+  }
+  return result;
 }
 
 /**
@@ -119,8 +135,11 @@ async function analyzeCase(caseDescription) {
   "summary": "2-3 line summary",
   "priority": "High/Medium/Low",
   "score": number (0-10),
+  "caseType": "Criminal/Civil/Cyber/Family/Property/Other",
   "reason": "clear explanation"
 }
+
+Choose caseType from the case facts. Use "Other" only if none fit well.
 
 Case:
 ${caseDescription}`;
@@ -131,7 +150,10 @@ ${caseDescription}`;
     const client = getClient();
     if (!client) {
       console.error('[Gemini] GEMINI_API_KEY is not set — using fallback analysis');
-      return buildResult(API_FALLBACK);
+      return applyKeywordCaseTypeIfGeneral(
+        buildResult(API_FALLBACK),
+        caseDescription
+      );
     }
 
     const primary =
@@ -157,13 +179,19 @@ ${caseDescription}`;
     }
   } catch (error) {
     console.error('[Gemini] API Error:', error.message);
-    return buildResult(API_FALLBACK);
+    return applyKeywordCaseTypeIfGeneral(
+      buildResult(API_FALLBACK),
+      caseDescription
+    );
   }
 
   console.log('Gemini RAW:', rawResponse);
 
   if (!String(rawResponse).trim()) {
-    return buildResult(API_FALLBACK);
+    return applyKeywordCaseTypeIfGeneral(
+      buildResult(API_FALLBACK),
+      caseDescription
+    );
   }
 
   const cleanedText = cleanGeminiResponse(rawResponse);
@@ -182,11 +210,12 @@ ${caseDescription}`;
       summary: parsed.summary || PARSE_FALLBACK.summary,
       priority: parsed.priority || PARSE_FALLBACK.priority,
       score: parsed.score !== undefined ? parsed.score : PARSE_FALLBACK.score,
+      caseType: parsed.caseType,
       reason: parsed.reason || PARSE_FALLBACK.reason
     };
   }
 
-  const out = buildResult(parsed);
+  const out = applyKeywordCaseTypeIfGeneral(buildResult(parsed), caseDescription);
   console.log('[Gemini] ✓ Analysis complete:', out);
   return out;
 }
