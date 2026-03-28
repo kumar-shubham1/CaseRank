@@ -1,6 +1,52 @@
-const API_BASE = '/api/cases';
+/**
+ * API base: same-origin when opened via Express (e.g. localhost:3000).
+ * Live Server / VS Code (ports like 5503) has no /api — use backend origin.
+ */
+function resolveApiBase() {
+  const meta = document.querySelector('meta[name="casrank-api-origin"]');
+  if (meta && meta.content && String(meta.content).trim()) {
+    return String(meta.content).trim().replace(/\/$/, '') + '/api/cases';
+  }
+
+  const loc = window.location;
+  const port = loc.port || '';
+
+  if (loc.protocol === 'file:') {
+    return 'http://127.0.0.1:3000/api/cases';
+  }
+
+  const staticDevPorts = new Set([
+    '5500', '5501', '5502', '5503', '5504', '5505', '5506', '5507', '5508', '5509', '5510',
+    '5173', '4173', '8080', '8888'
+  ]);
+  if (staticDevPorts.has(port)) {
+    const host = loc.hostname || '127.0.0.1';
+    return `http://${host}:3000/api/cases`;
+  }
+
+  return '/api/cases';
+}
+
+const API_BASE = resolveApiBase();
 
 const UNAVAILABLE = 'Analysis temporarily unavailable';
+const NETWORK_HINT =
+  'Cannot reach the CaseRank API. Start the backend (cd backend && npm start). Live Server users: API must run on port 3000, or add <meta name="casrank-api-origin" content="http://127.0.0.1:YOUR_PORT"> to index.html.';
+
+function isLikelyNetworkFailure(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  return (
+    err.name === 'TypeError' ||
+    msg === 'Failed to fetch' ||
+    msg.includes('NetworkError') ||
+    msg.includes('Load failed')
+  );
+}
+
+function alertApiError(err) {
+  alert(isLikelyNetworkFailure(err) ? NETWORK_HINT : err.message || UNAVAILABLE);
+}
 
 const MSG_READING = 'Reading file...';
 const MSG_ANALYZING = 'Analyzing with AI...';
@@ -89,7 +135,7 @@ async function handleAnalyze(e) {
 
     await refreshDashboard();
   } catch (error) {
-    alert(error.message || UNAVAILABLE);
+    alertApiError(error);
   } finally {
     showLoading(false);
     setLoadingMessage(MSG_ANALYZING);
@@ -192,7 +238,7 @@ async function handleUploadAnalyze() {
     await refreshDashboard();
     switchInputTab('manual');
   } catch (error) {
-    alert(error.message || UNAVAILABLE);
+    alertApiError(error);
   } finally {
     showLoading(false);
     setLoadingMessage(MSG_ANALYZING);
